@@ -5,11 +5,16 @@ export interface User {
   created_at: string;
 }
 
+export type MessageType = 'text' | 'voice';
+
 export interface Message {
   id: string;
   sender_id: string;
   receiver_id: string;
-  content: string;
+  message_type?: MessageType;
+  content: string | null;
+  audio_url?: string | null;
+  audio_duration?: number | null;
   created_at: string;
 }
 

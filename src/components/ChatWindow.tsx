@@ -119,8 +119,8 @@ export default function ChatWindow({
     }
   }, [isLoadingMore, hasMore, nextCursor]);
 
-  // Send message
-  const handleSend = useCallback(
+  // Send text message
+  const handleSendText = useCallback(
     async (content: string) => {
       setError(null);
       const res = await fetch('/api/messages', {
@@ -134,14 +134,34 @@ export default function ChatWindow({
         setError(data.error || 'Failed to send message.');
         throw new Error(data.error);
       }
+    },
+    []
+  );
 
-      // Message will appear via realtime subscription
+  // Send voice audio message
+  const handleSendAudio = useCallback(
+    async (file: Blob, duration: number) => {
+      setError(null);
+      const formData = new FormData();
+      formData.append('file', file, 'voice-message.webm');
+      formData.append('duration', duration.toString());
+
+      const res = await fetch('/api/messages/audio', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        setError(data.error || 'Failed to send voice message.');
+        throw new Error(data.error);
+      }
     },
     []
   );
 
   return (
-    <div className="flex h-dvh bg-stone-900">
+    <div className="flex h-dvh bg-stone-950">
       {/* Sidebar */}
       <Sidebar
         currentUserName={currentUser.display_name}
@@ -173,11 +193,11 @@ export default function ChatWindow({
           </div>
         )}
 
-        {/* Chat background with hamster pattern */}
-        <div className="flex-1 flex flex-col min-h-0 relative">
-          {/* Background pattern */}
-          <div className="absolute inset-0 hamster-bg opacity-[0.03]" />
-          <div className="absolute inset-0 bg-gradient-to-b from-stone-900/50 via-transparent to-stone-900/50" />
+        {/* Chat background with romantic flowers & hearts pattern */}
+        <div className="flex-1 flex flex-col min-h-0 relative bg-stone-950">
+          {/* Subtle Romantic Floral/Heart Vector Background */}
+          <div className="absolute inset-0 romantic-bg opacity-10 pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-b from-rose-950/20 via-transparent to-stone-950/40 pointer-events-none" />
 
           {/* Messages */}
           <div className="relative flex-1 flex flex-col min-h-0">
@@ -191,7 +211,7 @@ export default function ChatWindow({
           </div>
         </div>
 
-        <MessageInput onSend={handleSend} />
+        <MessageInput onSendText={handleSendText} onSendAudio={handleSendAudio} />
       </div>
     </div>
   );
