@@ -54,15 +54,25 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ messages: [], hasMore: false });
     }
 
-    // Build query - get messages between these two users
+    // Build query - get messages between these two users with reply_to_message joined
     let query = supabase
       .from('messages')
-      .select('*')
+      .select(`
+        *,
+        reply_to_message:messages!reply_to_message_id (
+          id,
+          sender_id,
+          message_type,
+          content,
+          audio_duration,
+          image_url
+        )
+      `)
       .or(
         `and(sender_id.eq.${session.userId},receiver_id.eq.${otherUser.id}),and(sender_id.eq.${otherUser.id},receiver_id.eq.${session.userId})`
       )
       .order('created_at', { ascending: false })
-      .limit(limit + 1); // Fetch one extra to check if there are more
+      .limit(limit + 1);
 
     if (cursor) {
       query = query.lt('created_at', cursor);
@@ -127,6 +137,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const replyToMessageId = body.reply_to_message_id || null;
+
     const supabase = createServerSupabaseClient();
 
     // Get the other user (receiver)
@@ -143,15 +155,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Insert message - sender_id comes from the session, NOT from the client
+    // Insert message - sender_id comes from session
     const { data: message, error } = await supabase
       .from('messages')
       .insert({
         sender_id: session.userId,
         receiver_id: receiver.id,
+        message_type: 'text',
         content: validation.sanitized!,
+        reply_to_message_id: replyToMessageId,
       })
-      .select()
+      .select(`
+        *,
+        reply_to_message:messages!reply_to_message_id (
+          id,
+          sender_id,
+          message_type,
+          content,
+          audio_duration,
+          image_url
+        )
+      `)
       .single();
 
     if (error) {

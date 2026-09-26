@@ -2,19 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
-const MAX_AUDIO_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
-const MAX_AUDIO_DURATION_SEC = 120; // 2 minutes
+const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 
-const ALLOWED_MIME_TYPES = [
-  'audio/webm',
-  'audio/mp4',
-  'audio/ogg',
-  'audio/wav',
-  'audio/mpeg',
-  'audio/aac',
-  'audio/m4a',
-  'audio/x-m4a',
-  'audio/mp3',
+const ALLOWED_IMAGE_MIME_TYPES = [
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
 ];
 
 export async function POST(request: NextRequest) {
@@ -30,36 +24,25 @@ export async function POST(request: NextRequest) {
     }
 
     const file = formData.get('file') as File | null;
-    const rawDuration = formData.get('duration') as string | null;
     const replyToMessageId = (formData.get('reply_to_message_id') as string | null) || null;
 
     if (!file) {
-      return NextResponse.json({ error: 'Audio file is required.' }, { status: 400 });
+      return NextResponse.json({ error: 'Image file is required.' }, { status: 400 });
     }
-
-    const duration = rawDuration ? parseInt(rawDuration, 10) : 0;
 
     // Validate size
-    if (file.size > MAX_AUDIO_SIZE_BYTES) {
+    if (file.size > MAX_IMAGE_SIZE_BYTES) {
       return NextResponse.json(
-        { error: 'Audio file exceeds 10MB limit.' },
-        { status: 400 }
-      );
-    }
-
-    // Validate duration
-    if (duration > MAX_AUDIO_DURATION_SEC) {
-      return NextResponse.json(
-        { error: 'Voice message cannot exceed 2 minutes.' },
+        { error: 'Image file exceeds 10MB limit.' },
         { status: 400 }
       );
     }
 
     // Validate MIME type
-    const baseMimeType = file.type.split(';')[0].trim().toLowerCase();
-    if (baseMimeType && !ALLOWED_MIME_TYPES.includes(baseMimeType)) {
+    const mimeType = file.type.toLowerCase();
+    if (!ALLOWED_IMAGE_MIME_TYPES.includes(mimeType)) {
       return NextResponse.json(
-        { error: `Unsupported audio format (${baseMimeType}).` },
+        { error: 'Only JPG, PNG, and WEBP image formats are supported.' },
         { status: 400 }
       );
     }
@@ -80,44 +63,43 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Upload audio file to Supabase Storage
-    const fileExt = baseMimeType.split('/')[1] || 'webm';
+    // Upload image file to Supabase Storage
+    const fileExt = mimeType.split('/')[1] || 'jpg';
     const fileName = `${session.userId}/${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
 
     const fileBuffer = Buffer.from(await file.arrayBuffer());
 
     const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('voice-messages')
+      .from('chat-images')
       .upload(fileName, fileBuffer, {
-        contentType: file.type || 'audio/webm',
+        contentType: mimeType,
         upsert: false,
       });
 
     if (uploadError) {
-      console.error('Supabase storage upload error:', uploadError);
+      console.error('Supabase image storage upload error:', uploadError);
       return NextResponse.json(
-        { error: 'Failed to upload voice message file.' },
+        { error: 'Failed to upload image file.' },
         { status: 500 }
       );
     }
 
     // Get public URL
     const { data: publicUrlData } = supabase.storage
-      .from('voice-messages')
+      .from('chat-images')
       .getPublicUrl(uploadData.path);
 
-    const audioUrl = publicUrlData.publicUrl;
+    const imageUrl = publicUrlData.publicUrl;
 
-    // Insert voice message
+    // Insert image message
     const { data: message, error: insertError } = await supabase
       .from('messages')
       .insert({
         sender_id: session.userId,
         receiver_id: receiver.id,
-        message_type: 'voice',
+        message_type: 'image',
         content: null,
-        audio_url: audioUrl,
-        audio_duration: Math.max(0, duration),
+        image_url: imageUrl,
         reply_to_message_id: replyToMessageId,
       })
       .select(`
@@ -134,18 +116,18 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (insertError) {
-      console.error('Voice message database insert error:', insertError);
+      console.error('Image message database insert error:', insertError);
       return NextResponse.json(
-        { error: 'Failed to save voice message.' },
+        { error: 'Failed to save image message.' },
         { status: 500 }
       );
     }
 
     return NextResponse.json({ message });
   } catch (error) {
-    console.error('Audio message POST error:', error);
+    console.error('Image message POST error:', error);
     return NextResponse.json(
-      { error: 'Failed to send voice message.' },
+      { error: 'Failed to send image message.' },
       { status: 500 }
     );
   }
