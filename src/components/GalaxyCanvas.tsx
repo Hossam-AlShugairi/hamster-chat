@@ -22,27 +22,33 @@ export default function GalaxyCanvas() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Check prefers-reduced-motion
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     let animationFrameId: number;
-    let width = (canvas.width = window.innerWidth);
-    let height = (canvas.height = window.innerHeight);
+    let width = 0;
+    let height = 0;
+
+    const setCanvasDimensions = () => {
+      const parent = canvas.parentElement;
+      width = canvas.width = parent ? parent.clientWidth : window.innerWidth;
+      height = canvas.height = parent ? parent.clientHeight : window.innerHeight;
+    };
+
+    setCanvasDimensions();
 
     const handleResize = () => {
       if (!canvas) return;
-      width = canvas.width = window.innerWidth;
-      height = canvas.height = window.innerHeight;
+      setCanvasDimensions();
       initStars();
     };
 
     window.addEventListener('resize', handleResize);
 
-    const starCount = Math.floor(Math.min(width, height) / 10) + 30;
     let stars: Star[] = [];
 
     function initStars() {
       stars = [];
+      const starCount = Math.floor(Math.min(width, height) / 12) + 25;
       for (let i = 0; i < starCount; i++) {
         stars.push({
           x: Math.random() * width,
@@ -70,7 +76,7 @@ export default function GalaxyCanvas() {
         10,
         width * 0.3,
         height * 0.4,
-        width * 0.5
+        Math.max(width, height) * 0.5
       );
       grad1.addColorStop(0, 'rgba(236, 72, 153, 0.08)');
       grad1.addColorStop(0.5, 'rgba(168, 85, 247, 0.04)');
@@ -84,7 +90,7 @@ export default function GalaxyCanvas() {
         10,
         width * 0.7,
         height * 0.6,
-        width * 0.4
+        Math.max(width, height) * 0.4
       );
       grad2.addColorStop(0, 'rgba(244, 63, 94, 0.06)');
       grad2.addColorStop(1, 'rgba(0, 0, 0, 0)');
@@ -94,7 +100,6 @@ export default function GalaxyCanvas() {
       // Render stars
       for (const star of stars) {
         if (!prefersReducedMotion) {
-          // Drifting
           star.x += star.dx;
           star.y += star.dy;
 
@@ -103,7 +108,6 @@ export default function GalaxyCanvas() {
           if (star.y < 0) star.y = height;
           if (star.y > height) star.y = 0;
 
-          // Twinkling
           if (Math.abs(star.alpha - star.targetAlpha) < 0.02) {
             star.targetAlpha = Math.random() * 0.8 + 0.2;
           } else {
@@ -137,7 +141,7 @@ export default function GalaxyCanvas() {
   return (
     <canvas
       ref={canvasRef}
-      className="absolute inset-0 pointer-events-none z-0"
+      className="absolute inset-0 w-full h-full pointer-events-none z-0 overflow-hidden"
     />
   );
 }

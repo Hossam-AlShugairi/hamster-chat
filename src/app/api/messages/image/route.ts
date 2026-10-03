@@ -4,13 +4,6 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 
-const ALLOWED_IMAGE_MIME_TYPES = [
-  'image/jpeg',
-  'image/jpg',
-  'image/png',
-  'image/webp',
-];
-
 export async function POST(request: NextRequest) {
   try {
     const session = await getSession();
@@ -38,48 +31,58 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate MIME type
+    // Validate MIME type / format (supporting Android photo pickers)
     const mimeType = file.type.toLowerCase();
-    if (!ALLOWED_IMAGE_MIME_TYPES.includes(mimeType)) {
+    const fileNameLower = file.name.toLowerCase();
+    const isImageMime = mimeType.startsWith('image/') || mimeType === 'application/octet-stream' || mimeType === '';
+    const hasImageExt = /\.(jpg|jpeg|png|webp|heic|heif|gif)$/i.test(fileNameLower);
+
+    if (!isImageMime && !hasImageExt) {
       return NextResponse.json(
-        { error: 'Only JPG, PNG, and WEBP image formats are supported.' },
+        { error: 'Selected file is not a supported image format.' },
         { status: 400 }
       );
     }
 
     const supabase = createServerSupabaseClient();
 
-    // Get receiver
-    const { data: receiver } = await supabase
+    // Get receiver user
+    const { data: receiver, error: receiverError } = await supabase
       .from('users')
       .select('id')
       .neq('id', session.userId)
       .single();
 
-    if (!receiver) {
+    if (receiverError || !receiver) {
       return NextResponse.json(
         { error: 'Receiver not found.' },
         { status: 404 }
       );
     }
 
-    // Upload image file to Supabase Storage
-    const fileExt = mimeType.split('/')[1] || 'jpg';
-    const fileName = `${session.userId}/${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
+    // Determine extension
+    let fileExt = 'jpg';
+    if (fileNameLower.includes('.')) {
+      fileExt = fileNameLower.split('.').pop() || 'jpg';
+    } else if (mimeType.includes('/')) {
+      fileExt = mimeType.split('/')[1];
+    }
 
+    const storagePath = `${session.userId}/${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
     const fileBuffer = Buffer.from(await file.arrayBuffer());
 
+    // Upload to Supabase Storage
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('chat-images')
-      .upload(fileName, fileBuffer, {
-        contentType: mimeType,
+      .upload(storagePath, fileBuffer, {
+        contentType: mimeType || 'image/jpeg',
         upsert: false,
       });
 
     if (uploadError) {
       console.error('Supabase image storage upload error:', uploadError);
       return NextResponse.json(
-        { error: 'Failed to upload image file.' },
+        { error: `Upload error: ${uploadError.message}` },
         { status: 500 }
       );
     }
@@ -91,7 +94,7 @@ export async function POST(request: NextRequest) {
 
     const imageUrl = publicUrlData.publicUrl;
 
-    // Insert image message
+    // Insert image message record
     const { data: message, error: insertError } = await supabase
       .from('messages')
       .insert({
@@ -102,32 +105,40 @@ export async function POST(request: NextRequest) {
         image_url: imageUrl,
         reply_to_message_id: replyToMessageId,
       })
-      .select(`
-        *,
-        reply_to_message:messages!reply_to_message_id (
-          id,
-          sender_id,
-          message_type,
-          content,
-          audio_duration,
-          image_url
-        )
-      `)
+      .select('*')
       .single();
 
     if (insertError) {
       console.error('Image message database insert error:', insertError);
+
+      // Clean up orphaned uploaded storage file
+      await supabase.storage.from('chat-images').remove([uploadData.path]).catch(() => {});
+
       return NextResponse.json(
-        { error: 'Failed to save image message.' },
+        { error: `Database save error: ${insertError.message}` },
         { status: 500 }
       );
     }
 
+    // If message is a reply, fetch joined reply message snippet
+    if (replyToMessageId) {
+      const { data: replyMsg } = await supabase
+        .from('messages')
+        .select('id, sender_id, message_type, content, audio_duration, image_url')
+        .eq('id', replyToMessageId)
+        .single();
+
+      if (replyMsg) {
+        (message as unknown as { reply_to_message?: unknown }).reply_to_message = replyMsg;
+      }
+    }
+
     return NextResponse.json({ message });
-  } catch (error) {
-    console.error('Image message POST error:', error);
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error('Image message POST error:', err);
     return NextResponse.json(
-      { error: 'Failed to send image message.' },
+      { error: err.message || 'Failed to send image message.' },
       { status: 500 }
     );
   }
